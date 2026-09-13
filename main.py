@@ -1,42 +1,43 @@
 import flet as ft
-from datetime import datetime
-import sqlite3
-import pandas as pd
+from datetime import datetime, timedelta
 import os
+import pandas as pd
+import sqlalchemy
 
-# Si estamos en Render con el disco montado en /data, lo guardamos ahí. 
-# Si estamos probando en la PC, lo guardamos localmente.
-if os.path.exists("/data"):
-    DB_FILE = "/data/control_gastos.db"
-else:
-    DB_FILE = "control_gastos.db"
-PRESUPUESTO_SEMANAL = 100000.0  # Tu límite semanal
+# Obtenemos la URL de la base de datos desde las variables de entorno de Render
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+def obtener_conexion():
+    engine = sqlalchemy.create_engine(DATABASE_URL)
+    return engine
 
 def inicializar_bd():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS gastos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            concepto TEXT,
-            monto REAL,
-            categoria TEXT,
-            medio_pago TEXT,
-            fecha TEXT
-        )
-    ''')
-    try:
-        cursor.execute("ALTER TABLE gastos ADD COLUMN medio_pago TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    conn.close()
+    engine = obtener_conexion()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text('''
+            CREATE TABLE IF NOT EXISTS gastos (
+                id SERIAL PRIMARY KEY,
+                concepto TEXT,
+                monto REAL,
+                categoria TEXT,
+                medio_pago TEXT,
+                fecha TEXT
+            )
+        '''))
 
 def cargar_gastos_db():
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM gastos", conn)
-    conn.close()
-    return df.to_dict(orient="records")
+    try:
+        engine = obtener_conexion()
+        df = pd.read_sql("SELECT * FROM gastos", engine)
+        return df.to_dict(orient="records")
+    except Exception as e:
+        print(f"Error cargando datos: {e}")
+        return []
+
+PRESUPUESTO_SEMANAL = 100000.0  # Tu límite semanal
 
 def main(page: ft.Page):
     page.title = "Control de Gastos Personal"
@@ -46,7 +47,9 @@ def main(page: ft.Page):
     page.padding = 20
     page.bgcolor = "#f8fafc"
 
-    inicializar_bd()
+    if DATABASE_URL:
+        inicializar_bd()
+    
     lista_gastos = cargar_gastos_db()
 
     titulo_app = ft.Text("Control de Gastos", size=26, weight=ft.FontWeight.BOLD, color="#1e293b")
@@ -116,26 +119,28 @@ def main(page: ft.Page):
 
     columna_resultados = ft.Column(scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     contenedor_resumen_categorias = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-    contenedor_resumen_pagos = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER) # Nuevo contenedor
+    contenedor_resumen_pagos = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+    contenedor_semanas_mes = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     
     texto_presupuesto = ft.Text("Semana: $0.00 / $100,000.00", size=15, weight=ft.FontWeight.BOLD, color="#1e293b")
     barra_progreso = ft.ProgressBar(value=0.0, width=350, color="#0f766e", bgcolor="#e2e8f0")
     texto_total = ft.Text("Total Histórico: $0.00", size=16, weight=ft.FontWeight.BOLD, color="#64748b")
 
     def insertar_en_db(concepto, monto, categoria, medio_pago, fecha):
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO gastos (concepto, monto, categoria, medio_pago, fecha) VALUES (?, ?, ?, ?, ?)", 
-                       (concepto, monto, categoria, medio_pago, fecha))
-        conn.commit()
-        conn.close()
+        engine = obtener_conexion()
+        with engine.begin() as conn:
+            conn.execute(
+                sqlalchemy.text("INSERT INTO gastos (concepto, monto, categoria, medio_pago, fecha) VALUES (:c, :m, :cat, :p, :f)"),
+                {"c": concepto, "m": monto, "cat": categoria, "p": medio_pago, "f": fecha}
+            )
 
     def eliminar_de_db(gasto_id):
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM gastos WHERE id = ?", (gasto_id,))
-        conn.commit()
-        conn.close()
+        engine = obtener_conexion()
+        with engine.begin() as conn:
+            conn.execute(
+                sqlalchemy.text("DELETE FROM gastos WHERE id = :id"),
+                {"id": gasto_id}
+            )
 
     def agregar_gasto(e):
         if not input_concepto.value or not input_monto.value or not dropdown_categoria.value or not dropdown_medio_pago.value:
@@ -153,12 +158,17 @@ def main(page: ft.Page):
             return
 
         fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
-        insertar_en_db(input_concepto.value, monto_num, dropdown_categoria.value, dropdown_medio_pago.value, fecha_actual)
+        try:
+            insertar_en_db(input_concepto.value, monto_num, dropdown_categoria.value, dropdown_medio_pago.value, fecha_actual)
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Error al guardar: {ex}"), bgcolor="#ef4444")
+            page.snack_bar.open = True
+            page.update()
+            return
 
         nonlocal lista_gastos
         lista_gastos = cargar_gastos_db()
 
-        # Limpiar formulario
         input_concepto.value = ""
         input_monto.value = ""
         dropdown_categoria.value = None
@@ -179,22 +189,24 @@ def main(page: ft.Page):
         columna_resultados.controls.clear()
         contenedor_resumen_categorias.controls.clear()
         contenedor_resumen_pagos.controls.clear()
+        contenedor_semanas_mes.controls.clear()
+        
         total_historico = 0
         total_semana = 0
 
-        hoy = datetime.now()
-        anio_actual, semana_actual, _ = hoy.isocalendar()
+        ahora = datetime.now()
+        inicio_lunes = ahora - timedelta(days=ahora.weekday())
+        inicio_lunes = inicio_lunes.replace(hour=0, minute=0, second=0, microsecond=0)
 
         if lista_gastos:
             df = pd.DataFrame(lista_gastos)
             df['fecha_dt'] = pd.to_datetime(df['fecha'], format="%d/%m/%Y %H:%M")
-            df['anio'] = df['fecha_dt'].dt.isocalendar().year
-            df['semana'] = df['fecha_dt'].dt.isocalendar().week
-
-            df_semana = df[(df['anio'] == anio_actual) & (df['semana'] == semana_actual)]
+            
+            # Gasto de la semana actual (desde este lunes)
+            df_semana = df[df['fecha_dt'] >= inicio_lunes]
             total_semana = df_semana['monto'].sum()
 
-        # 1. Historial de Gastos
+        # 1. Historial de Gastos (Pestaña Registrar)
         for gasto in reversed(lista_gastos):
             total_historico += gasto["monto"]
             g_id = gasto["id"]
@@ -230,18 +242,30 @@ def main(page: ft.Page):
             columna_resultados.controls.append(tarjeta)
 
         if lista_gastos:
-            # 2. Desglose por categoría ordenado de mayor a menor
-            totales_cat = df.groupby("categoria")["monto"].sum().reset_index()
-            totales_cat = totales_cat.sort_values(by="monto", ascending=False)
+            # 2. Desglose por Semanas del Mes Actual (Basado en el número de semana del mes: 1 al 5)
+            # Calculamos a qué semana del mes pertenece cada gasto (ej: días 1-7 = Sem 1, 8-14 = Sem 2, etc.)
+            df['mes_anio'] = df['fecha_dt'].dt.to_period('M')
+            mes_actual_periodo = pd.Period(ahora, freq='M')
             
-            for _, row in totales_cat.iterrows():
-                fila_cat = ft.Row([
-                    ft.Text(row["categoria"], size=13, color="#475569"),
-                    ft.Text(f"${row['monto']:.2f}", size=13, weight=ft.FontWeight.BOLD, color="#334155")
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
-                contenedor_resumen_categorias.controls.append(fila_cat)
+            df_mes_actual = df[df['mes_anio'] == mes_actual_periodo].copy()
+            if not df_mes_actual.empty:
+                # Calculamos el número de semana dentro del mes (del 1 al 5)
+                df_mes_actual['semana_del_mes'] = df_mes_actual['fecha_dt'].apply(lambda d: (d.day - 1) // 7 + 1)
+                totales_semanas = df_mes_actual.groupby('semana_del_mes')['monto'].sum().reset_index()
+                
+                for _, row in totales_semanas.iterrows():
+                    num_sem = int(row['semana_del_mes'])
+                    fila_sem = ft.Row([
+                        ft.Text(f"📅 Semana {num_sem} del mes", size=13, color="#475569"),
+                        ft.Text(f"${row['monto']:.2f}", size=13, weight=ft.FontWeight.BOLD, color="#0f766e")
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
+                    contenedor_semanas_mes.controls.append(fila_sem)
+            else:
+                contenedor_semanas_mes.controls.append(
+                    ft.Text("Sin gastos registrados este mes", size=12, color="#94a3b8")
+                )
 
-            # 3. Desglose por Medio de Pago (Efectivo, Débito, Crédito)
+            # 3. Desglose por Medio de Pago (Histórico)
             totales_pago = df.groupby("medio_pago")["monto"].sum().reset_index()
             totales_pago = totales_pago.sort_values(by="monto", ascending=False)
 
@@ -251,6 +275,17 @@ def main(page: ft.Page):
                     ft.Text(f"${row['monto']:.2f}", size=13, weight=ft.FontWeight.BOLD, color="#0f766e")
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
                 contenedor_resumen_pagos.controls.append(fila_pago)
+
+            # 4. Desglose por categoría ordenado de mayor a menor (Histórico)
+            totales_cat = df.groupby("categoria")["monto"].sum().reset_index()
+            totales_cat = totales_cat.sort_values(by="monto", ascending=False)
+            
+            for _, row in totales_cat.iterrows():
+                fila_cat = ft.Row([
+                    ft.Text(row["categoria"], size=13, color="#475569"),
+                    ft.Text(f"${row['monto']:.2f}", size=13, weight=ft.FontWeight.BOLD, color="#334155")
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
+                contenedor_resumen_categorias.controls.append(fila_cat)
 
         texto_presupuesto.value = f"Gasto esta semana: ${total_semana:,.2f} / ${PRESUPUESTO_SEMANAL:,.2f}"
         
@@ -278,7 +313,7 @@ def main(page: ft.Page):
     card_presupuesto = ft.Card(
         content=ft.Container(
             content=ft.Column([
-                ft.Text("Gastos Semanales", size=14, weight=ft.FontWeight.BOLD, color="#64748b"),
+                ft.Text("Gastos de la Semana Actual (Desde el lunes)", size=14, weight=ft.FontWeight.BOLD, color="#64748b"),
                 texto_presupuesto,
                 barra_progreso
             ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -289,8 +324,9 @@ def main(page: ft.Page):
         )
     )
 
+    # Definimos las 3 pestañas solicitadas
     pestanas = ft.Tabs(
-        length=2,
+        length=3,
         selected_index=0,
         expand=True,
         content=ft.Column(
@@ -298,13 +334,15 @@ def main(page: ft.Page):
             controls=[
                 ft.TabBar(
                     tabs=[
-                        ft.Tab(label="Registrar y Ver"),
-                        ft.Tab(label="Resumen y Metas"),
+                        ft.Tab(label="Registrar"),
+                        ft.Tab(label="Semana Actual"),
+                        ft.Tab(label="Histórico y Semanas"),
                     ],
                 ),
                 ft.TabBarView(
                     expand=True,
                     controls=[
+                        # PESTAÑA 1: Registrar y Ver Historial
                         ft.Container(
                             content=ft.Column([
                                 ft.Divider(height=10, color="transparent"),
@@ -320,15 +358,27 @@ def main(page: ft.Page):
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=10
                         ),
+                        # PESTAÑA 2: Semana Actual
                         ft.Container(
                             content=ft.Column([
                                 ft.Divider(height=10, color="transparent"),
                                 card_presupuesto,
+                                ft.Divider(height=15, color="transparent"),
+                                ft.Text("Aquí puedes ver el control de tu presupuesto semanal actual.", size=12, color="#64748b", text_align=ft.TextAlign.CENTER)
+                            ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            padding=10
+                        ),
+                        # PESTAÑA 3: Total Histórico y Desglose de Semanas del Mes + Categorías/Pagos
+                        ft.Container(
+                            content=ft.Column([
                                 ft.Divider(height=10, color="transparent"),
                                 texto_total,
                                 ft.Divider(height=15, color="transparent"),
-                                ft.Text("Gastos por Medio de Pago:", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
-                                contenedor_resumen_pagos, # <-- Sección nueva de medios de pago
+                                ft.Text("Desglose por Semanas del Mes Actual:", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
+                                contenedor_semanas_mes,
+                                ft.Divider(height=15, color="transparent"),
+                                ft.Text("Gastos por Medio de Pago (Histórico):", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
+                                contenedor_resumen_pagos,
                                 ft.Divider(height=15, color="transparent"),
                                 ft.Text("Desglose por Categoría (Mayor a Menor):", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
                                 contenedor_resumen_categorias
@@ -349,4 +399,4 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8550))
-    ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=port)
+    ft.run(target=main, view=ft.AppView.WEB_BROWSER, port=port)
