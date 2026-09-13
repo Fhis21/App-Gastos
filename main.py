@@ -118,6 +118,9 @@ def main(page: ft.Page):
     )
 
     columna_resultados = ft.Column(scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+    
+    # Contenedores de resúmenes separados
+    contenedor_resumen_categorias_semana = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     contenedor_resumen_categorias = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     contenedor_resumen_pagos = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     contenedor_semanas_mes = ft.Column(spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
@@ -187,6 +190,7 @@ def main(page: ft.Page):
 
     def actualizar_pantalla():
         columna_resultados.controls.clear()
+        contenedor_resumen_categorias_semana.controls.clear()
         contenedor_resumen_categorias.controls.clear()
         contenedor_resumen_pagos.controls.clear()
         contenedor_semanas_mes.controls.clear()
@@ -203,7 +207,7 @@ def main(page: ft.Page):
             df['fecha_dt'] = pd.to_datetime(df['fecha'], format="%d/%m/%Y %H:%M")
             
             # Gasto de la semana actual (desde este lunes)
-            df_semana = df[df['fecha_dt'] >= inicio_lunes]
+            df_semana = df[df['fecha_dt'] >= inicio_lunes].copy()
             total_semana = df_semana['monto'].sum()
 
         # 1. Historial de Gastos (Pestaña Registrar)
@@ -242,14 +246,28 @@ def main(page: ft.Page):
             columna_resultados.controls.append(tarjeta)
 
         if lista_gastos:
-            # 2. Desglose por Semanas del Mes Actual (Basado en el número de semana del mes: 1 al 5)
-            # Calculamos a qué semana del mes pertenece cada gasto (ej: días 1-7 = Sem 1, 8-14 = Sem 2, etc.)
+            # 2. Desglose de Categorías de la Semana Actual
+            if not df_semana.empty:
+                totales_cat_semana = df_semana.groupby("categoria")["monto"].sum().reset_index()
+                totales_cat_semana = totales_cat_semana.sort_values(by="monto", ascending=False)
+                
+                for _, row in totales_cat_semana.iterrows():
+                    fila_cat_sem = ft.Row([
+                        ft.Text(row["categoria"], size=13, color="#475569"),
+                        ft.Text(f"${row['monto']:.2f}", size=13, weight=ft.FontWeight.BOLD, color="#334155")
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
+                    contenedor_resumen_categorias_semana.controls.append(fila_cat_sem)
+            else:
+                contenedor_resumen_categorias_semana.controls.append(
+                    ft.Text("Sin gastos registrados esta semana", size=12, color="#94a3b8")
+                )
+
+            # 3. Desglose por Semanas del Mes Actual
             df['mes_anio'] = df['fecha_dt'].dt.to_period('M')
             mes_actual_periodo = pd.Period(ahora, freq='M')
             
             df_mes_actual = df[df['mes_anio'] == mes_actual_periodo].copy()
             if not df_mes_actual.empty:
-                # Calculamos el número de semana dentro del mes (del 1 al 5)
                 df_mes_actual['semana_del_mes'] = df_mes_actual['fecha_dt'].apply(lambda d: (d.day - 1) // 7 + 1)
                 totales_semanas = df_mes_actual.groupby('semana_del_mes')['monto'].sum().reset_index()
                 
@@ -265,7 +283,7 @@ def main(page: ft.Page):
                     ft.Text("Sin gastos registrados este mes", size=12, color="#94a3b8")
                 )
 
-            # 3. Desglose por Medio de Pago (Histórico)
+            # 4. Desglose por Medio de Pago (Histórico)
             totales_pago = df.groupby("medio_pago")["monto"].sum().reset_index()
             totales_pago = totales_pago.sort_values(by="monto", ascending=False)
 
@@ -276,7 +294,7 @@ def main(page: ft.Page):
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
                 contenedor_resumen_pagos.controls.append(fila_pago)
 
-            # 4. Desglose por categoría ordenado de mayor a menor (Histórico)
+            # 5. Desglose por categoría ordenado de mayor a menor (Histórico)
             totales_cat = df.groupby("categoria")["monto"].sum().reset_index()
             totales_cat = totales_cat.sort_values(by="monto", ascending=False)
             
@@ -324,7 +342,6 @@ def main(page: ft.Page):
         )
     )
 
-    # Definimos las 3 pestañas solicitadas
     pestanas = ft.Tabs(
         length=3,
         selected_index=0,
@@ -358,13 +375,14 @@ def main(page: ft.Page):
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=10
                         ),
-                        # PESTAÑA 2: Semana Actual
+                        # PESTAÑA 2: Semana Actual + Categorías de la semana
                         ft.Container(
                             content=ft.Column([
                                 ft.Divider(height=10, color="transparent"),
                                 card_presupuesto,
                                 ft.Divider(height=15, color="transparent"),
-                                ft.Text("Aquí puedes ver el control de tu presupuesto semanal actual.", size=12, color="#64748b", text_align=ft.TextAlign.CENTER)
+                                ft.Text("Categorías de esta semana:", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
+                                contenedor_resumen_categorias_semana
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=10
                         ),
@@ -380,7 +398,7 @@ def main(page: ft.Page):
                                 ft.Text("Gastos por Medio de Pago (Histórico):", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
                                 contenedor_resumen_pagos,
                                 ft.Divider(height=15, color="transparent"),
-                                ft.Text("Desglose por Categoría (Mayor a Menor):", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
+                                ft.Text("Desglose por Categoría (Histórico):", weight=ft.FontWeight.BOLD, size=14, color="#475569"),
                                 contenedor_resumen_categorias
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=10
