@@ -2,8 +2,14 @@ import flet as ft
 from datetime import datetime
 import sqlite3
 import pandas as pd
+import os
 
-DB_FILE = "control_gastos.db"
+# Si estamos en Render con el disco montado en /data, lo guardamos ahí. 
+# Si estamos probando en la PC, lo guardamos localmente.
+if os.path.exists("/data"):
+    DB_FILE = "/data/control_gastos.db"
+else:
+    DB_FILE = "control_gastos.db"
 PRESUPUESTO_SEMANAL = 100000.0  # Tu límite semanal
 
 def inicializar_bd():
