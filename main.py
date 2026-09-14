@@ -153,9 +153,9 @@ def main(page: ft.Page):
     texto_presupuesto = ft.Text("Semana: $0.00 / $100,000.00", size=15, weight=ft.FontWeight.BOLD, color="#f8fafc")
     barra_progreso = ft.ProgressBar(value=0.0, width=350, color="#14b8a6", bgcolor="#334155")
     texto_total_historico = ft.Text("Total Histórico Acumulado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#94a3b8")
-    texto_total_mes = ft.Text("Total del Mes Seleccionado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#2dd4bf")
+    texto_total_mes = ft.Text("Total del Periodo Seleccionado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#2dd4bf")
 
-    # Dropdown para filtrar histórico por Mes/Año
+    # Dropdown para filtrar histórico por Mes/Año (sin on_change)
     dropdown_mes_filtro = ft.Dropdown(
         label="Filtrar Histórico por Mes",
         border_radius=10,
@@ -165,8 +165,7 @@ def main(page: ft.Page):
         focused_border_color="#14b8a6",
         label_style=ft.TextStyle(color="#94a3b8", size=14),
         color="#f8fafc",
-        width=ANCHO_CAMPOS,
-        on_change=lambda e: actualizar_pantalla()
+        width=ANCHO_CAMPOS
     )
 
     def actualizar_opciones_meses(df_gastos):
@@ -184,7 +183,6 @@ def main(page: ft.Page):
         encontro_actual = False
         for m in meses_unicos:
             m_str = m.strftime('%Y-%m')
-            # Nombre legible (ej: Septiembre 2026)
             nombre_legible = m.strftime('%B %Y').capitalize()
             opciones.append(ft.dropdown.Option(key=m_str, text=nombre_legible))
             if m_str == mes_actual_str:
@@ -193,6 +191,17 @@ def main(page: ft.Page):
         dropdown_mes_filtro.options = opciones
         if dropdown_mes_filtro.value is None:
             dropdown_mes_filtro.value = mes_actual_str if encontro_actual else "Todos"
+
+    def aplicar_filtro_mes(e):
+        actualizar_pantalla()
+
+    btn_aplicar_filtro = ft.ElevatedButton(
+        content=ft.Text("Aplicar Filtro de Mes", color="#ffffff"),
+        on_click=aplicar_filtro_mes,
+        bgcolor="#334155",
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+        width=350
+    )
 
     def exportar_excel(e):
         if not lista_gastos:
@@ -304,7 +313,6 @@ def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
-    # Diálogo para editar un gasto existente
     def abrir_dialogo_editar(gasto):
         txt_edit_concepto = ft.TextField(label="Concepto", value=gasto["concepto"], bgcolor="#1e293b", color="#f8fafc", border_radius=10, width=300)
         txt_edit_monto = ft.TextField(label="Monto ($)", value=str(gasto["monto"]), keyboard_type=ft.KeyboardType.NUMBER, bgcolor="#1e293b", color="#f8fafc", border_radius=10, width=300)
@@ -384,15 +392,12 @@ def main(page: ft.Page):
             df_global = pd.DataFrame(lista_gastos)
             df_global['fecha_dt'] = pd.to_datetime(df_global['fecha'], format="%d/%m/%Y %H:%M")
             
-            # Gasto semana actual
             df_semana = df_global[df_global['fecha_dt'] >= inicio_lunes].copy()
             total_semana = df_semana['monto'].sum()
 
-            # Actualizar opciones del dropdown de meses la primera vez o si cambia
             if not dropdown_mes_filtro.options or len(dropdown_mes_filtro.options) <= 1:
                 actualizar_opciones_meses(df_global)
 
-        # Filtrar datos según el mes seleccionado en el dropdown histórico
         mes_seleccionado = dropdown_mes_filtro.value
         df_filtrado = df_global.copy()
         
@@ -403,7 +408,6 @@ def main(page: ft.Page):
             
             total_mes_filtrado = df_filtrado['monto'].sum()
 
-        # 1. Renderizar Historial de Gastos (según filtro de mes)
         if not df_filtrado.empty:
             df_filtrado_ordenado = df_filtrado.sort_values(by='fecha_dt', ascending=False)
             for _, row in df_filtrado_ordenado.iterrows():
@@ -453,7 +457,6 @@ def main(page: ft.Page):
                 ft.Text("No hay gastos en este periodo", size=13, color="#64748b")
             )
 
-        # 2. Resumen Semana Actual
         if lista_gastos and not df_semana.empty:
             totales_cat_semana = df_semana.groupby("categoria")["monto"].sum().reset_index()
             totales_cat_semana = totales_cat_semana.sort_values(by="monto", ascending=False)
@@ -469,7 +472,6 @@ def main(page: ft.Page):
                 ft.Text("Sin gastos registrados esta semana", size=12, color="#64748b")
             )
 
-        # 3. Resumen Semanas del Mes Actual
         if not df_global.empty:
             ahora_periodo = pd.Period(ahora, freq='M')
             df_mes_actual = df_global[df_global['fecha_dt'].dt.to_period('M') == ahora_periodo].copy()
@@ -489,7 +491,6 @@ def main(page: ft.Page):
                     ft.Text("Sin gastos registrados este mes", size=12, color="#64748b")
                 )
 
-        # 4. Resúmenes globales o filtrados (Medios de pago y Categorías)
         if not df_filtrado.empty:
             totales_pago = df_filtrado.groupby("medio_pago")["monto"].sum().reset_index()
             totales_pago = totales_pago.sort_values(by="monto", ascending=False)
@@ -511,7 +512,6 @@ def main(page: ft.Page):
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=350)
                 contenedor_resumen_categorias.controls.append(fila_cat)
 
-        # Actualizar textos de totales
         texto_presupuesto.value = f"Gasto esta semana: ${total_semana:,.2f} / ${PRESUPUESTO_SEMANAL:,.2f}"
         porcentaje = min(total_semana / PRESUPUESTO_SEMANAL, 1.0)
         barra_progreso.value = porcentaje
@@ -583,9 +583,9 @@ def main(page: ft.Page):
                         ),
                         ft.Container(
                             content=ft.Column([
-                                ft.Divider(height=10, color="transparent"),
+                                ft.Divider(10, color="transparent"),
                                 card_presupuesto,
-                                ft.Divider(height=15, color="transparent"),
+                                ft.Divider(15, color="transparent"),
                                 ft.Text("Categorías de esta semana:", weight=ft.FontWeight.BOLD, size=14, color="#f8fafc"),
                                 contenedor_resumen_categorias_semana
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -598,6 +598,7 @@ def main(page: ft.Page):
                                 texto_total_mes,
                                 ft.Divider(height=5, color="transparent"),
                                 dropdown_mes_filtro,
+                                btn_aplicar_filtro,
                                 ft.Divider(height=5, color="transparent"),
                                 btn_exportar,
                                 ft.Divider(height=15, color="transparent"),
