@@ -155,7 +155,7 @@ def main(page: ft.Page):
     texto_total_historico = ft.Text("Total Histórico Acumulado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#94a3b8")
     texto_total_mes = ft.Text("Total del Periodo Seleccionado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#2dd4bf")
 
-    # Dropdown para filtrar histórico por Mes/Año (sin on_change)
+    # Dropdown para filtrar histórico por Mes/Año
     dropdown_mes_filtro = ft.Dropdown(
         label="Filtrar Histórico por Mes",
         border_radius=10,
@@ -583,9 +583,9 @@ def main(page: ft.Page):
                         ),
                         ft.Container(
                             content=ft.Column([
-                                ft.Divider(10, color="transparent"),
+                                ft.Divider(height=10, color="transparent"),
                                 card_presupuesto,
-                                ft.Divider(15, color="transparent"),
+                                ft.Divider(height=15, color="transparent"),
                                 ft.Text("Categorías de esta semana:", weight=ft.FontWeight.BOLD, size=14, color="#f8fafc"),
                                 contenedor_resumen_categorias_semana
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
