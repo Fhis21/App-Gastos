@@ -42,43 +42,22 @@ PRESUPUESTO_SEMANAL = 100000.0  # Tu límite semanal
 
 def main(page: ft.Page):
     page.title = "Control de Gastos Personal"
-    page.theme_mode = ft.ThemeMode.DARK  # Arranca en oscuro por defecto
+    page.theme_mode = ft.ThemeMode.DARK  # Fijo siempre en modo oscuro
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.padding = 20
-    page.bgcolor = "#0f172a"  # Fondo oscuro inicial
+    page.bgcolor = "#0f172a"  # Fondo oscuro fijo
 
     if DATABASE_URL:
         inicializar_bd()
     
     lista_gastos = cargar_gastos_db()
 
-    # Función para alternar el tema claro/oscuro
-    def cambiar_tema(e):
-        if page.theme_mode == ft.ThemeMode.DARK:
-            page.theme_mode = ft.ThemeMode.LIGHT
-            page.bgcolor = "#f8fafc"
-            btn_tema.icon = ft.Icons.DARK_MODE
-            btn_tema.tooltip = "Cambiar a Modo Oscuro"
-        else:
-            page.theme_mode = ft.ThemeMode.DARK
-            page.bgcolor = "#0f172a"
-            btn_tema.icon = ft.Icons.LIGHT_MODE
-            btn_tema.tooltip = "Cambiar a Modo Claro"
-        page.update()
-
-    btn_tema = ft.IconButton(
-        icon=ft.Icons.LIGHT_MODE,
-        tooltip="Cambiar a Modo Claro",
-        on_click=cambiar_tema,
-        icon_color="#f8fafc"
-    )
-
     titulo_app = ft.Text("Control de Gastos", size=26, weight=ft.FontWeight.BOLD, color="#f8fafc")
     
     header_row = ft.Row(
-        [titulo_app, btn_tema],
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        [titulo_app],
+        alignment=ft.MainAxisAlignment.CENTER,
         width=350
     )
 
@@ -155,7 +134,6 @@ def main(page: ft.Page):
     texto_total_historico = ft.Text("Total Histórico Acumulado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#94a3b8")
     texto_total_mes = ft.Text("Total del Periodo Seleccionado: $0.00", size=15, weight=ft.FontWeight.BOLD, color="#2dd4bf")
 
-    # Dropdown para filtrar histórico por Mes/Año
     dropdown_mes_filtro = ft.Dropdown(
         label="Filtrar Histórico por Mes",
         border_radius=10,
@@ -219,7 +197,7 @@ def main(page: ft.Page):
             
             df.columns = ['Concepto', 'Monto', 'Categoría', 'Medio de Pago', 'Fecha']
             csv_str = df.to_csv(index=False, encoding='utf-8-sig')
-            page.launch_url(f"data:text/csv;charset=utf-8,{urllib_parse.quote(csv_str)}")
+            page.launch_url(f"data:text/csv;charset=utf-8,{urllib.parse.quote(csv_str)}")
         except Exception:
             try:
                 nombre_archivo = f"gastos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -583,9 +561,9 @@ def main(page: ft.Page):
                         ),
                         ft.Container(
                             content=ft.Column([
-                                ft.Divider(height=10, color="transparent"),
+                                ft.Divider(10, color="transparent"),
                                 card_presupuesto,
-                                ft.Divider(height=15, color="transparent"),
+                                ft.Divider(15, color="transparent"),
                                 ft.Text("Categorías de esta semana:", weight=ft.FontWeight.BOLD, size=14, color="#f8fafc"),
                                 contenedor_resumen_categorias_semana
                             ], scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
