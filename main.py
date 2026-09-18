@@ -605,6 +605,5 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8550))
-    # Configuración correcta para servidor web en la nube
     ft.app(target=main, port=port, host="0.0.0.0")
     #Version 001 Domingo 13 de Septiembre del 2026
