@@ -605,5 +605,7 @@ def main(page: ft.Page):
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8550))
-    ft.app(target=main, port=port, host="0.0.0.0")
+    # Configuración de Flet para entorno web en producción (Render)
+    ft.app(target=main, view=ft.AppView.FLET_APP, port=port)
     #Version 001 Domingo 13 de Septiembre del 2026
+    #Version 002 Viernes 18 de Septiembre del 2026
